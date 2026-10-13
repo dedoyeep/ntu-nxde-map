@@ -1,0 +1,1340 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>台大地點日誌</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Spectral:wght@500;600&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  /* Layout: a cartographic field notebook — map on one side, a paper log panel
+     on the other; stacks to one column on phones. */
+  :root {
+    --bg: #f3efe6; --surface: #fffdf7; --surface-2: #ece7d9;
+    --fg: #24221d; --muted: #716b5d; --line: #d8d1c0;
+    --accent: #35655a; --accent-soft: #e0ebe6; --on-accent: #fffdf7;
+    --pin: #c0533f; --warn: #a6442f;
+    --shadow: 0 1px 2px rgba(40,36,28,.06), 0 6px 18px rgba(40,36,28,.08);
+    --font-display: "Spectral", Georgia, "Noto Serif TC", serif;
+    --font-body: "IBM Plex Sans", "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161816; --surface: #21241f; --surface-2: #2b2f29;
+      --fg: #ece7db; --muted: #9b968a; --line: #343a31;
+      --accent: #63a493; --accent-soft: #223029; --on-accent: #10231c;
+      --pin: #d9674f; --warn: #e0876f;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #161816; --surface: #21241f; --surface-2: #2b2f29;
+    --fg: #ece7db; --muted: #9b968a; --line: #343a31;
+    --accent: #63a493; --accent-soft: #223029; --on-accent: #10231c;
+    --pin: #d9674f; --warn: #e0876f;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body);
+    font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  h1,h2,h3 { font-family: var(--font-display); font-weight: 600; text-wrap: balance; margin: 0; }
+  button { font-family: inherit; }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+  /* ---- shell ---- */
+  .app { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  header.bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px clamp(14px, 3vw, 22px); padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    background: var(--surface); border-bottom: 1px solid var(--line); position: relative; z-index: 20; }
+  .brand { display: flex; align-items: baseline; gap: 10px; margin-right: auto; min-width: 0; }
+  .brand h1 { font-size: 20px; }
+  .brand .sub { font-size: 12px; color: var(--muted); }
+  .sub .dotst { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); margin-right: 5px; vertical-align: 1px; }
+  .sub.cloud .dotst { background: var(--accent); }
+  .bar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  .btn { appearance: none; border: 1px solid var(--line); background: var(--surface); color: var(--fg);
+    padding: 7px 12px; border-radius: 8px; font-size: 13px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    transition: background .15s, border-color .15s, transform .05s; }
+  .btn:hover { border-color: var(--accent); }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: .55; cursor: progress; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .btn.ghost { background: transparent; border-color: transparent; }
+  .btn.ghost:hover { background: var(--surface-2); }
+  .btn.danger { color: var(--warn); border-color: transparent; background: transparent; }
+  .btn.danger:hover { background: var(--surface-2); border-color: var(--warn); }
+  .btn.wide { flex: 1; padding: 9px 12px; font-size: 14px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  main { display: flex; flex: 1; min-height: 0; }
+  .mapwrap { position: relative; z-index: 0; isolation: isolate; flex: 1.3; min-width: 0; min-height: 0; display: flex; }
+  #map { flex: 1; min-width: 0; min-height: 0; background:
+      repeating-linear-gradient(0deg, transparent 0 39px, var(--line) 39px 40px),
+      repeating-linear-gradient(90deg, transparent 0 39px, var(--line) 39px 40px), var(--surface-2); }
+  .panel { flex: 1; min-width: 0; max-width: 480px; background: var(--surface); border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; min-height: 0; }
+  @media (max-width: 760px) {
+    main { flex-direction: column; }
+    .mapwrap { flex: none; height: 42vh; }
+    .panel { max-width: none; border-left: none; border-top: 1px solid var(--line); flex: 1; }
+  }
+
+  /* ---- panel ---- */
+  .panel-head { padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 6px; }
+  .panel-head .ph-main { min-width: 0; flex: 1; }
+  .panel-head h2 { font-size: 18px; overflow-wrap: anywhere; }
+  .panel-head .coord { font-size: 11.5px; color: var(--muted); }
+  .panel-body { overflow-y: auto; padding: 14px 16px 28px; flex: 1; -webkit-overflow-scrolling: touch; }
+
+  .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+    text-align: center; min-height: 60%; color: var(--muted); padding: 24px; }
+  .empty .big { font-family: var(--font-display); font-size: 17px; color: var(--fg); }
+  .empty p { margin: 0; max-width: 32ch; font-size: 13.5px; }
+
+  .section-label { font-size: 11px; letter-spacing: .12em; color: var(--muted); margin: 4px 0 10px;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .count-pill { font-family: var(--font-mono); font-size: 11px; background: var(--accent-soft); color: var(--accent); padding: 1px 7px; border-radius: 999px; letter-spacing: 0; }
+
+  /* ---- profile (view mode) ---- */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; margin: 2px 0 14px; }
+  .stat + .stat { border-left: 1px solid var(--line); }
+  .stat b { display: block; font-family: var(--font-mono); font-weight: 500; font-size: 22px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+  .stat b.rec { color: var(--pin); }
+  .stat b.mood { color: var(--accent); }
+  .stat b small { font-size: 12px; color: var(--muted); }
+  .stat span { font-size: 12px; color: var(--muted); }
+  .tier { display: inline-block; font-size: 11.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--pin); color: var(--pin); }
+  .prof-meta { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 5px; }
+  .tag { font-size: 12px; padding: 2px 9px; border-radius: 999px; background: var(--surface-2); color: var(--fg); }
+  .tag small { color: var(--muted); font-family: var(--font-mono); font-size: 10.5px; margin-left: 3px; }
+  .note { font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .note.none { color: var(--muted); font-size: 13px; }
+  .prof-actions { display: flex; gap: 8px; margin-bottom: 16px; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin: 0 -16px; }
+  .tile { position: relative; aspect-ratio: 1; max-width: 100%; overflow: hidden; background: var(--surface-2);
+    cursor: pointer; border: 0; padding: 0; color: var(--fg); font: inherit; }
+  .tile img, .tile video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+  .tile .badge { position: absolute; top: 5px; right: 5px; background: rgba(0,0,0,.55); color: #fff;
+    font: 500 10.5px/1 var(--font-mono); padding: 3px 5px; border-radius: 4px; }
+  .tile .txt { position: absolute; inset: 0; padding: 10px; font-size: 12.5px; text-align: left; line-height: 1.4;
+    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; color: var(--fg); }
+  .tile .txt.muted { color: var(--muted); }
+  .tile .when { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 6px 4px; font: 10.5px/1.2 var(--font-mono);
+    color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.55)); text-align: left; }
+  .tile.textonly .when { color: var(--muted); background: none; }
+  .tile:hover img, .tile:hover video { filter: brightness(.92); }
+
+  /* ---- edit mode ---- */
+  .form { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+  .field { margin-bottom: 12px; }
+  .field:last-child { margin-bottom: 0; }
+  label.lbl, .lbl { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  input[type="text"], input[type="email"], input[type="password"], input[type="datetime-local"], textarea {
+    width: 100%; font: inherit; font-size: 15px; color: var(--fg); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  textarea { resize: vertical; min-height: 72px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 999px;
+    padding: 4px 11px; font: inherit; font-size: 13px; cursor: pointer; }
+  .chip small { color: var(--muted); font-family: var(--font-mono); font-size: 10.5px; margin-left: 4px; }
+  .chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .chip[aria-pressed="true"] small { color: var(--accent); }
+  .mood-pick { display: inline-flex; gap: 8px; }
+  .mood-pick button { width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid var(--line); background: var(--surface);
+    cursor: pointer; font-size: 12px; color: var(--muted); }
+  .mood-pick button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .rec-row { display: flex; align-items: center; gap: 10px; }
+  .rec-pick { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; flex: 1; min-width: 0; }
+  .rec-pick button { height: 32px; border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 0;
+    font-family: var(--font-mono); font-size: 12px; color: var(--muted); cursor: pointer; min-width: 0; }
+  .rec-pick button.on { background: var(--pin); border-color: var(--pin); color: #fff; }
+  .rec-val { font-family: var(--font-mono); font-size: 12px; color: var(--muted); min-width: 4.2em; text-align: right; }
+  .rec-val b { color: var(--pin); font-size: 16px; font-weight: 500; }
+  .filepick { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); cursor: pointer;
+    border: 1px dashed var(--line); border-radius: 8px; padding: 10px; background: var(--surface); }
+  .filepick input { display: none; }
+  .previews { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: 6px; }
+  .previews:empty { display: none; }
+  .previews > div { aspect-ratio: 1; border-radius: 6px; overflow: hidden; background: var(--surface); }
+  .previews img, .previews video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .edit-actions { display: flex; gap: 8px; position: sticky; bottom: -28px; background: var(--surface);
+    padding: 10px 0 12px; margin-bottom: -12px; }
+  .danger-zone { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted); }
+
+  /* ---- list mode ---- */
+  .filters { margin-bottom: 14px; }
+  .filters .chip { font-size: 12.5px; }
+  .loclist { display: flex; flex-direction: column; gap: 8px; }
+  .locrow { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 1px solid var(--line);
+    background: var(--surface); border-radius: 10px; padding: 9px 12px; cursor: pointer; color: var(--fg); font: inherit; }
+  .locrow:hover { border-color: var(--accent); }
+  .locrow .thumbs { width: 44px; height: 44px; border-radius: 8px; overflow: hidden; background: var(--surface-2); flex: none; }
+  .locrow .thumbs img, .locrow .thumbs video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .locrow .meta { min-width: 0; flex: 1; }
+  .locrow .nm { font-weight: 500; overflow-wrap: anywhere; }
+  .locrow .sl { font-size: 12px; color: var(--muted); }
+  .locrow .rec { font-family: var(--font-mono); font-size: 17px; font-weight: 500; color: var(--pin); text-align: right; min-width: 2.4em; }
+  .locrow .rec.none { color: var(--muted); font-size: 13px; }
+  .locrow .rec small { display: block; font-size: 10px; color: var(--muted); font-weight: 400; }
+
+  /* ---- marker ---- */
+  .pin { width: 26px; height: 26px; position: relative; }
+  .pin::before { content: ""; position: absolute; left: 50%; top: 0; width: 26px; height: 26px;
+    transform: translateX(-50%) rotate(-45deg); background: var(--pin); border: 2px solid #fff;
+    border-radius: 50% 50% 50% 0; box-shadow: 0 2px 5px rgba(0,0,0,.3); }
+  .pin.sel::before { background: var(--accent); }
+  .pin b { position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center;
+    font: 600 11px/1 var(--font-mono); color: #fff; }
+  .pin b.dot::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #fff; }
+
+  /* ---- post viewer ---- */
+  .post { position: fixed; inset: 0; background: rgba(10,8,5,.86); z-index: 2000; display: flex;
+    align-items: center; justify-content: center; padding: calc(12px + env(safe-area-inset-top,0px)) 12px calc(12px + env(safe-area-inset-bottom,0px)); }
+  .post-card { background: var(--surface); border-radius: 12px; overflow: hidden; display: flex; width: min(980px, 100%);
+    max-height: 100%; min-height: 0; }
+  .post-media { position: relative; flex: 1.5; min-width: 0; background: #000; display: flex; align-items: center; justify-content: center; min-height: 260px; }
+  .post-media img, .post-media video { max-width: 100%; max-height: 82vh; display: block; }
+  .post-media .nav { position: absolute; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; border-radius: 50%;
+    border: 0; background: rgba(255,255,255,.85); color: #222; font-size: 18px; cursor: pointer; }
+  .post-media .prev { left: 8px; } .post-media .next { right: 8px; }
+  .post-media .counter { position: absolute; top: 8px; right: 10px; color: #fff; background: rgba(0,0,0,.5);
+    font: 11px/1 var(--font-mono); padding: 4px 7px; border-radius: 999px; }
+  .post-body { flex: 1; min-width: 0; padding: 16px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+  .post-body.solo { flex: none; width: min(520px, 100%); }
+  .post-top { display: flex; align-items: center; gap: 8px; }
+  .post-when { font-size: 12.5px; color: var(--muted); }
+  .post-close { margin-left: auto; }
+  .post-scores { display: flex; gap: 14px; font-size: 12.5px; color: var(--muted); align-items: center; flex-wrap: wrap; }
+  .post-scores b { font-family: var(--font-mono); font-weight: 500; color: var(--fg); }
+  .dots { display: inline-flex; gap: 3px; vertical-align: -1px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--accent); }
+  .dot.on { background: var(--accent); }
+  .post-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14.5px; flex: 1; }
+  .post-foot { display: flex; justify-content: flex-end; }
+  @media (max-width: 760px) {
+    .post-card { flex-direction: column; }
+    .post-media { flex: none; max-height: 58vh; }
+    .post-media img, .post-media video { max-height: 58vh; }
+    .post-body.solo { width: 100%; }
+  }
+
+  /* ---- modal / misc ---- */
+  .modal { position: fixed; inset: 0; background: rgba(10,8,5,.45); z-index: 2100; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .modal-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); width: min(380px, 100%); padding: 18px; }
+  .modal-card h3 { font-size: 17px; margin-bottom: 6px; }
+  .modal-card p { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+  .modal-card .field { margin-bottom: 10px; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  .err { color: var(--warn); font-size: 13px; margin: 10px 0 0; }
+  .tilewarn { position: absolute; left: 10px; bottom: 10px; z-index: 500; max-width: min(300px, 70%);
+    background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--pin);
+    border-radius: 8px; padding: 8px 11px; font-size: 12px; color: var(--muted); box-shadow: var(--shadow); }
+  .hint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 500; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; font-size: 12.5px; color: var(--fg);
+    box-shadow: var(--shadow); pointer-events: none; opacity: 0; transition: opacity .3s; white-space: nowrap; }
+  .hint.show { opacity: 1; }
+  .toast { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom,0px)); left: 50%; transform: translateX(-50%);
+    background: var(--fg); color: var(--bg); padding: 9px 16px; border-radius: 999px; font-size: 13px; z-index: 2200;
+    box-shadow: var(--shadow); opacity: 0; transition: opacity .25s; pointer-events: none; max-width: calc(100% - 32px); }
+  .toast.show { opacity: 1; }
+  .basemap { position: absolute; top: 10px; right: 10px; z-index: 500; display: flex; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 8px; overflow: hidden; box-shadow: var(--shadow); }
+  .basemap button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12px; padding: 6px 11px; cursor: pointer; }
+  .basemap button + button { border-left: 1px solid var(--line); }
+  .basemap button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="bar">
+    <div class="brand">
+      <h1>台大地點日誌</h1>
+      <span class="sub" id="syncState"><span class="dotst"></span>載入中…</span>
+    </div>
+    <div class="bar-actions">
+      <button class="btn ghost" id="btnTheme" title="切換深／淺色">◐ 主題</button>
+      <button class="btn" id="btnExport">↓ 匯出備份</button>
+      <button class="btn" id="btnImport">↑ 匯入</button>
+      <button class="btn ghost" id="btnLogout" hidden>登出</button>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+    </div>
+  </header>
+
+  <main>
+    <div class="mapwrap">
+      <div id="map"></div>
+      <div class="hint" id="hint">點地圖任一處即可新增地點</div>
+      <div class="basemap" id="basemap" role="group" aria-label="底圖">
+        <button type="button" data-base="street">街道</button>
+        <button type="button" data-base="emap">電子地圖</button>
+        <button type="button" data-base="satellite">衛星</button>
+      </div>
+      <div class="tilewarn" id="tilewarn" hidden>底圖載入失敗。請確認有連上網路，或在右上角切換其他底圖。標記與紀錄功能不受影響。</div>
+    </div>
+
+    <section class="panel">
+      <div class="panel-head" id="panelHead" hidden>
+        <button class="btn ghost" id="btnBack" title="回到地點清單">←</button>
+        <div class="ph-main">
+          <h2 id="locName">—</h2>
+          <div class="coord mono" id="locCoord"></div>
+        </div>
+        <button class="btn ghost" id="btnEditHead" title="編輯">✎ 編輯</button>
+      </div>
+      <div class="panel-body" id="panelBody"></div>
+    </section>
+  </main>
+</div>
+
+<!-- post viewer -->
+<div class="post" id="post" hidden>
+  <div class="post-card" id="postCard">
+    <div class="post-media" id="pMedia"></div>
+    <div class="post-body" id="pBody">
+      <div class="post-top">
+        <span class="post-when mono" id="pWhen"></span>
+        <button class="btn ghost post-close" id="pClose">✕</button>
+      </div>
+      <div class="post-scores" id="pScores"></div>
+      <div class="post-text" id="pText"></div>
+      <div class="post-foot"><button class="btn danger" id="pDelete">刪除這筆紀錄</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- generic modal -->
+<div class="modal" id="modal" hidden>
+  <div class="modal-card">
+    <h3 id="mTitle"></h3>
+    <p id="mDesc"></p>
+    <div id="mFieldWrap"><input type="text" id="mInput"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="mCancel">取消</button>
+      <button class="btn primary" id="mOk">確定</button>
+    </div>
+  </div>
+</div>
+
+<!-- login -->
+<div class="modal" id="login" hidden>
+  <form class="modal-card" id="loginForm">
+    <h3>登入台大地點日誌</h3>
+    <p>使用你在 Supabase 建立的帳號。登入一次後，這台裝置會記住你。</p>
+    <div class="field"><label class="lbl" for="lgEmail">電子郵件</label><input type="email" id="lgEmail" autocomplete="username" required></div>
+    <div class="field"><label class="lbl" for="lgPass">密碼</label><input type="password" id="lgPass" autocomplete="current-password" required></div>
+    <div class="modal-actions"><button class="btn primary" type="submit" id="lgBtn">登入</button></div>
+    <p class="err" id="lgErr" hidden></p>
+  </form>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  /* ================================================================== *
+   * CONFIG — 想微調的東西大多集中在這裡
+   * ================================================================== */
+  var CONFIG = {
+    // ── 雲端 ──────────────────────────────────────────────────────
+    // 三個都填好就會改用雲端（Supabase 存文字資料＋登入，Cloudflare R2 存照片影片）；
+    // 留空則只存在這台裝置的瀏覽器裡。
+    // anon key 本來就設計成可公開，資料由資料庫的權限規則（RLS）保護。
+    supabaseUrl: "https://gmlgobjiljvlkorgrszz.supabase.co",          // 例如 "https://abcdefgh.supabase.co"
+    supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdtbGdvYmppbGp2bGtvcmdyc3p6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4NzkyNTUsImV4cCI6MjEwNzQ1NTI1NX0.WgHaMjY5mxIk66pUX9nzBe-THzKnVXg-IWLMQoCxx3I",      // Project Settings → API → anon public
+    mediaWorkerUrl: "https://ntu-nxde-media.dennis141-boy.workers.dev/",       // 例如 "https://ntu-journal-media.你的帳號.workers.dev"
+    maxUploadMB: 100,         // 單一檔案上限（Worker 免費方案最多 100 MB）
+    imageMaxSide: 2048,       // 上傳前把照片長邊縮到這個像素（省空間）；0 = 不縮
+    imageQuality: 0.85,
+
+    // ── 地圖 ──────────────────────────────────────────────────────
+    center: [25.0174, 121.5398],
+    zoom: 16,
+
+    // ── 地點資訊 ──────────────────────────────────────────────────
+    // [內部代號, 顯示名稱, 時間範圍]。代號存進資料後就不要改，名稱可隨意改
+    timeSlots: [
+      ["am",       "上午", "6–12"],
+      ["pm",       "下午", "12–18"],
+      ["eve",      "晚上", "18–22"],
+      ["midnight", "半夜", "22–1"],
+      ["late",     "深夜", "1–6"]
+    ],
+    // 舊版時段代號 → 新版（讀到舊資料時自動轉換）
+    legacySlots: { dawn: ["am"], morning: ["am"], noon: ["am", "pm"], afternoon: ["pm"],
+                   dusk: ["pm", "eve"], evening: ["eve"], night: ["midnight", "late"] },
+    dayTypes: [["weekday", "平日"], ["weekend", "假日"]],
+    recMax: 10,
+    moodMax: 5,
+    // 清單篩選：[代號, 名稱, 最低, 最高]（以平均推薦指數四捨五入判斷）
+    recTiers: [
+      ["low",  "不推薦",   1, 3],
+      ["mid",  "有點普通", 4, 6],
+      ["good", "推薦到訪", 7, 8],
+      ["must", "必看必去", 9, 10]
+    ],
+
+    // ── 底圖 ──────────────────────────────────────────────────────
+    cartoKey: "cb1_4iw0_1_05d60d02d146c22054e069eb",
+    defaultBase: "street",
+    fallbackOrder: ["street", "emap", "satellite"],
+    basemaps: {
+      street: { url: "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key={key}",
+                maxNativeZoom: 20, attribution: "© OpenStreetMap contributors © CARTO" },
+      emap: { url: "https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}",
+              maxNativeZoom: 19, attribution: "臺灣通用電子地圖 © 內政部國土測繪中心" },
+      satellite: { url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                   maxNativeZoom: 19, attribution: "Imagery © Esri, Maxar, Earthstar Geographics" }
+    }
+  };
+
+  /* ------------------------------------------------------------------ *
+   * Small helpers
+   * ------------------------------------------------------------------ */
+  var $ = function (id) { return document.getElementById(id); };
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function localStamp(d) {
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+  function fmtWhen(dt, short) {
+    if (!dt) return "";
+    var d = new Date(dt); if (isNaN(d)) return dt;
+    if (short) return d.getFullYear() + "/" + pad(d.getMonth() + 1) + "/" + pad(d.getDate());
+    var wk = ["日","一","二","三","四","五","六"][d.getDay()];
+    return d.getFullYear() + "/" + pad(d.getMonth() + 1) + "/" + pad(d.getDate()) + "（" + wk + "）" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+  function errMsg(e) { return (e && (e.message || e.error_description || e.error)) || String(e); }
+
+  function toast(msg, ms) {
+    var t = $("toast"); t.textContent = msg; t.classList.add("show");
+    clearTimeout(t._t); t._t = setTimeout(function () { t.classList.remove("show"); }, ms || 2400);
+  }
+
+  /* theme */
+  var root = document.documentElement;
+  var savedTheme = lsGet("ntuj-theme"); if (savedTheme) root.setAttribute("data-theme", savedTheme);
+  $("btnTheme").addEventListener("click", function () {
+    var cur = root.getAttribute("data-theme");
+    var isDark = cur ? cur === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var next = isDark ? "light" : "dark"; root.setAttribute("data-theme", next); lsSet("ntuj-theme", next);
+  });
+
+  /* Shrink big photos before upload. Returns the original file if anything goes wrong. */
+  async function prepFile(f) {
+    if (!CONFIG.imageMaxSide || !/^image\/(jpeg|heic|heif|webp)$/i.test(f.type)) return f;
+    try {
+      var bmp = await createImageBitmap(f);
+      var s = Math.min(1, CONFIG.imageMaxSide / Math.max(bmp.width, bmp.height));
+      if (s === 1 && f.size < 1.5e6) return f;
+      var c = document.createElement("canvas");
+      c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
+      c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+      var blob = await new Promise(function (r) { c.toBlob(r, "image/jpeg", CONFIG.imageQuality); });
+      if (!blob || blob.size >= f.size) return f;
+      return new File([blob], (f.name || "photo").replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+    } catch (e) { return f; }
+  }
+  function mediaType(mime) { return (mime || "").indexOf("video") === 0 ? "video" : "image"; }
+  function extOf(f) {
+    var m = /\.([a-z0-9]{1,5})$/i.exec(f.name || ""); if (m) return m[1].toLowerCase();
+    return ((f.type || "").split("/")[1] || "bin").replace("quicktime", "mov").replace("jpeg", "jpg");
+  }
+
+  /* ================================================================== *
+   * STORAGE ADAPTERS — same interface, two back ends
+   *   listLocations() / saveLocation(loc) / deleteLocation(loc, entries)
+   *   listEntries()   / saveEntry(entry, files, onProgress) / deleteEntry(entry)
+   *   mediaUrls(mediaList) -> {id: url}   /  mediaBlob(m) -> Blob
+   * ================================================================== */
+
+  /* ---------- 1) Local: IndexedDB in this browser only ---------- */
+  function localStore() {
+    var DB_NAME = "ntu_field_journal", db;
+    function req2p(r) { return new Promise(function (res, rej) { r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); }; }); }
+    function os(name, mode) { return db.transaction([name], mode || "readonly").objectStore(name); }
+    var urlCache = {};
+    return new Promise(function (resolve, reject) {
+      var rq = indexedDB.open(DB_NAME, 1);
+      rq.onupgradeneeded = function (ev) {
+        var d = ev.target.result;
+        if (!d.objectStoreNames.contains("locations")) d.createObjectStore("locations", { keyPath: "id" });
+        if (!d.objectStoreNames.contains("entries")) d.createObjectStore("entries", { keyPath: "id" }).createIndex("byLoc", "locationId");
+        if (!d.objectStoreNames.contains("media")) d.createObjectStore("media", { keyPath: "id" }).createIndex("byEntry", "entryId");
+      };
+      rq.onsuccess = function () {
+        db = rq.result;
+        resolve({
+          kind: "local",
+          listLocations: function () { return req2p(os("locations").getAll()); },
+          saveLocation: function (loc) { return req2p(os("locations", "readwrite").put(loc)); },
+          deleteLocation: async function (loc, ents) {
+            for (var i = 0; i < ents.length; i++) await this.deleteEntry(ents[i]);
+            await req2p(os("locations", "readwrite").delete(loc.id));
+          },
+          listEntries: async function () {
+            var ents = await req2p(os("entries").getAll());
+            var media = await req2p(os("media").getAll());
+            var by = {};
+            media.forEach(function (m) { (by[m.entryId] = by[m.entryId] || []).push({ id: m.id, type: m.type, mime: m.mime, name: m.name }); });
+            ents.forEach(function (e) { e.media = by[e.id] || []; });
+            return ents;
+          },
+          saveEntry: async function (entry, files, onProgress) {
+            var rec = Object.assign({}, entry); delete rec.media;
+            await req2p(os("entries", "readwrite").put(rec));
+            entry.media = entry.media || [];
+            for (var i = 0; i < files.length; i++) {
+              if (onProgress) onProgress(i, files.length);
+              var f = await prepFile(files[i]);
+              var m = { id: uid(), entryId: entry.id, type: mediaType(f.type), mime: f.type, name: f.name, blob: f };
+              await req2p(os("media", "readwrite").put(m));
+              entry.media.push({ id: m.id, type: m.type, mime: m.mime, name: m.name });
+            }
+            return entry;
+          },
+          deleteEntry: async function (entry) {
+            var ms = await req2p(os("media").index("byEntry").getAll(entry.id));
+            for (var i = 0; i < ms.length; i++) await req2p(os("media", "readwrite").delete(ms[i].id));
+            await req2p(os("entries", "readwrite").delete(entry.id));
+          },
+          mediaUrls: async function (list) {
+            var out = {};
+            for (var i = 0; i < list.length; i++) {
+              var m = list[i];
+              if (!urlCache[m.id]) {
+                var rec = await req2p(os("media").get(m.id));
+                if (rec && rec.blob) urlCache[m.id] = URL.createObjectURL(rec.blob);
+              }
+              if (urlCache[m.id]) out[m.id] = urlCache[m.id];
+            }
+            return out;
+          },
+          mediaBlob: async function (m) { var r = await req2p(os("media").get(m.id)); return r && r.blob; }
+        });
+      };
+      rq.onerror = function () { reject(rq.error); };
+    });
+  }
+
+  /* ---------- 2) Cloud: Supabase (text data + login) + Cloudflare R2 via Worker (media) ---------- */
+  function cloudStore(sb, userId) {
+    var W = CONFIG.mediaWorkerUrl.replace(/\/$/, ""), urlCache = {};
+    function chk(r) { if (r.error) throw r.error; return r.data; }
+    function encKey(k) { return k.split("/").map(encodeURIComponent).join("/"); }
+    async function token() {
+      var s = (await sb.auth.getSession()).data.session;
+      if (!s) throw new Error("登入已過期，請重新整理頁面再登入");
+      return s.access_token;
+    }
+    async function worker(method, path, body, headers) {
+      var h = Object.assign({ Authorization: "Bearer " + (await token()) }, headers || {});
+      var res = await fetch(W + path, { method: method, headers: h, body: body });
+      if (!res.ok) throw new Error((await res.text().catch(function () { return ""; })) || ("照片伺服器回應 " + res.status));
+      return res.headers.get("content-type") && res.headers.get("content-type").indexOf("json") > -1 ? res.json() : res.text();
+    }
+    async function removeMedia(paths) {
+      if (paths.length) await worker("POST", "/delete", JSON.stringify({ paths: paths }), { "Content-Type": "application/json" });
+    }
+    function rowToLoc(r) { return { id: r.id, name: r.name, lat: r.lat, lng: r.lng, days: r.days || [], slots: r.slots || [], note: r.note || "", createdAt: r.created_at }; }
+    function rowToEnt(r) { return { id: r.id, locationId: r.location_id, datetime: r.datetime, text: r.text || "", mood: r.mood || 0, rec: r.rec || 0, media: r.media || [], createdAt: r.created_at }; }
+    return {
+      kind: "cloud",
+      listLocations: async function () { return chk(await sb.from("locations").select("*")).map(rowToLoc); },
+      saveLocation: async function (loc) {
+        chk(await sb.from("locations").upsert({ id: loc.id, name: loc.name, lat: loc.lat, lng: loc.lng,
+          days: loc.days || [], slots: loc.slots || [], note: loc.note || "", created_at: loc.createdAt || Date.now() }));
+      },
+      deleteLocation: async function (loc, ents) {
+        var paths = [];
+        ents.forEach(function (e) { (e.media || []).forEach(function (m) { if (m.path) paths.push(m.path); }); });
+        chk(await sb.from("locations").delete().eq("id", loc.id)); // entries cascade
+        await removeMedia(paths);
+      },
+      listEntries: async function () { return chk(await sb.from("entries").select("*")).map(rowToEnt); },
+      saveEntry: async function (entry, files, onProgress) {
+        entry.media = entry.media || [];
+        for (var i = 0; i < files.length; i++) {
+          if (onProgress) onProgress(i, files.length);
+          var f = await prepFile(files[i]);
+          if (f.size > CONFIG.maxUploadMB * 1024 * 1024)
+            throw new Error("「" + (f.name || "檔案") + "」超過 " + CONFIG.maxUploadMB + " MB，請先剪短或降低畫質（前面的檔案已存好）");
+          if (!/^(image|video)\//.test(f.type || "")) throw new Error("「" + (f.name || "檔案") + "」不是照片或影片");
+          var mid = uid(), path = userId + "/" + entry.id + "/" + mid + "." + extOf(f);
+          await worker("PUT", "/media/" + encKey(path), f, { "Content-Type": f.type });
+          entry.media.push({ id: mid, path: path, type: mediaType(f.type), mime: f.type, name: f.name });
+          // save after each file so a dropped connection never loses already-uploaded files
+          chk(await sb.from("entries").upsert(entRow(entry)));
+        }
+        if (!files.length) chk(await sb.from("entries").upsert(entRow(entry)));
+        return entry;
+      },
+      deleteEntry: async function (entry) {
+        var paths = (entry.media || []).map(function (m) { return m.path; }).filter(Boolean);
+        chk(await sb.from("entries").delete().eq("id", entry.id));
+        await removeMedia(paths);
+      },
+      mediaUrls: async function (list) {
+        var now = Date.now(), need = [], out = {};
+        list.forEach(function (m) {
+          var c = urlCache[m.path];
+          if (c && c.exp > now) out[m.id] = c.url; else if (m.path) need.push(m);
+        });
+        if (need.length) {
+          var r = await worker("POST", "/sign", JSON.stringify({ paths: need.map(function (m) { return m.path; }) }), { "Content-Type": "application/json" });
+          var until = r.exp * 1000 - 10 * 60 * 1000;
+          need.forEach(function (m) {
+            var u = r.urls && r.urls[m.path];
+            if (u) { urlCache[m.path] = { url: u, exp: until }; out[m.id] = u; }
+          });
+        }
+        return out;
+      },
+      mediaBlob: async function (m) {
+        var u = (await this.mediaUrls([m]))[m.id]; if (!u) return null;
+        var res = await fetch(u); if (!res.ok) throw new Error("下載失敗 " + res.status);
+        return res.blob();
+      }
+    };
+    function entRow(e) {
+      return { id: e.id, location_id: e.locationId, datetime: e.datetime || null, text: e.text || "",
+        mood: e.mood || 0, rec: e.rec || 0, media: e.media || [], created_at: e.createdAt || Date.now() };
+    }
+  }
+
+  /* ================================================================== *
+   * STATE
+   * ================================================================== */
+  var store = null, sb = null;
+  var state = {
+    locs: {},          // id -> location
+    ents: {},          // locationId -> [entries], newest first
+    sel: null,         // selected location id
+    mode: "list",      // list | view | edit
+    editIsNew: false,
+    filter: []         // recTier codes
+  };
+  try { state.filter = JSON.parse(lsGet("ntuj-filter") || "[]") || []; } catch (e) {}
+
+  function entsOf(id) { return state.ents[id] || []; }
+  function avg(list, key) {
+    var v = list.map(function (e) { return e[key] || 0; }).filter(function (x) { return x > 0; });
+    if (!v.length) return 0;
+    return v.reduce(function (a, b) { return a + b; }, 0) / v.length;
+  }
+  function fmtAvg(x) { return x ? (Math.round(x * 10) / 10).toString() : "–"; }
+  function tierOf(avgRec) {
+    if (!avgRec) return null;
+    var r = Math.round(avgRec);
+    for (var i = 0; i < CONFIG.recTiers.length; i++) { var t = CONFIG.recTiers[i]; if (r >= t[2] && r <= t[3]) return t; }
+    return null;
+  }
+  function locStats(id) { var es = entsOf(id); return { n: es.length, rec: avg(es, "rec"), mood: avg(es, "mood") }; }
+  function passesFilter(id) {
+    if (!state.filter.length) return true;
+    var t = tierOf(locStats(id).rec);
+    return !!t && state.filter.indexOf(t[0]) > -1;
+  }
+  function sortEnts(list) { list.sort(function (a, b) { return (b.datetime || "").localeCompare(a.datetime || "") || (b.createdAt || 0) - (a.createdAt || 0); }); }
+
+  /* Older data: slot codes changed, and recommendation lived on the location.
+     Converts in place; returns the ids that need re-saving. */
+  function upgradeLegacy(locs, ents) {
+    var changedLocs = {}, changedEnts = {}, newEnts = [];
+    locs.forEach(function (loc) {
+      loc.days = loc.days || []; loc.note = loc.note || "";
+      var slots = [], changed = false;
+      (loc.slots || []).forEach(function (s) {
+        var mapped = CONFIG.legacySlots[s];
+        if (mapped) { changed = true; mapped.forEach(function (m) { if (slots.indexOf(m) < 0) slots.push(m); }); }
+        else if (slots.indexOf(s) < 0) slots.push(s);
+      });
+      loc.slots = slots;
+      if (loc.rec) {
+        var mine = ents.filter(function (e) { return e.locationId === loc.id; });
+        var missing = mine.filter(function (e) { return !e.rec; });
+        if (mine.length) missing.forEach(function (e) { e.rec = loc.rec; changedEnts[e.id] = true; });
+        else newEnts.push({ id: uid(), locationId: loc.id, datetime: localStamp(new Date(loc.createdAt || Date.now())),
+          text: "", mood: 0, rec: loc.rec, media: [], createdAt: Date.now() });
+        delete loc.rec; changed = true;
+      }
+      if (changed) changedLocs[loc.id] = true;
+    });
+    newEnts.forEach(function (e) { ents.push(e); changedEnts[e.id] = true; });
+    return { locs: changedLocs, ents: changedEnts };
+  }
+
+  /* ================================================================== *
+   * MAP
+   * ================================================================== */
+  var map = L.map("map", { zoomControl: true }).setView(CONFIG.center, CONFIG.zoom);
+  var baseLayer = null, tried = {};
+  function setBase(key, auto) {
+    if (!CONFIG.basemaps[key]) key = CONFIG.defaultBase;
+    var b = CONFIG.basemaps[key];
+    if (!auto) tried = {};
+    tried[key] = true;
+    if (baseLayer) map.removeLayer(baseLayer);
+    $("tilewarn").hidden = true;
+    var errors = 0, loaded = 0;
+    baseLayer = L.tileLayer(b.url, { maxZoom: 20, maxNativeZoom: b.maxNativeZoom || 19,
+      attribution: b.attribution, key: CONFIG.cartoKey });
+    baseLayer.on("tileload", function () { loaded++; });
+    baseLayer.on("tileerror", function () {
+      errors++;
+      if (errors === 4 && loaded === 0) {
+        var next = CONFIG.fallbackOrder.filter(function (k) { return !tried[k]; })[0];
+        if (next) { toast("底圖載入失敗，已自動切換"); setBase(next, true); }
+        else $("tilewarn").hidden = false;
+      }
+    });
+    baseLayer.addTo(map);
+    document.querySelectorAll("#basemap button").forEach(function (btn) {
+      btn.setAttribute("aria-pressed", btn.getAttribute("data-base") === key ? "true" : "false");
+    });
+    lsSet("ntuj-base", key);
+  }
+  document.querySelectorAll("#basemap button").forEach(function (btn) {
+    btn.addEventListener("click", function () { setBase(btn.getAttribute("data-base")); });
+  });
+  setBase(lsGet("ntuj-base") || CONFIG.defaultBase);
+
+  var hint = $("hint");
+  setTimeout(function () { hint.classList.add("show"); }, 600);
+  setTimeout(function () { hint.classList.remove("show"); }, 4200);
+
+  var markers = {};
+  function pinIcon(id) {
+    var r = Math.round(locStats(id).rec);
+    return L.divIcon({ className: "",
+      html: '<div class="pin' + (id === state.sel ? " sel" : "") + '">' + (r ? "<b>" + r + "</b>" : '<b class="dot"></b>') + "</div>",
+      iconSize: [26, 26], iconAnchor: [13, 31] });
+  }
+  function syncMarkers() {
+    Object.keys(markers).forEach(function (id) { if (!state.locs[id]) { map.removeLayer(markers[id]); delete markers[id]; } });
+    Object.keys(state.locs).forEach(function (id) {
+      var loc = state.locs[id], m = markers[id];
+      if (!m) {
+        m = markers[id] = L.marker([loc.lat, loc.lng], { icon: pinIcon(id), title: loc.name });
+        m.on("click", function () { openLocation(id); });
+      } else {
+        m.setIcon(pinIcon(id));
+        if (m.getElement()) m.getElement().title = loc.name;
+      }
+      var show = passesFilter(id) || id === state.sel;
+      if (show && !map.hasLayer(m)) m.addTo(map);
+      if (!show && map.hasLayer(m)) map.removeLayer(m);
+    });
+  }
+
+  map.on("click", function (e) {
+    if (!store) return;
+    askText("新增地點", "為這個位置取個名字。", "地點名稱，例如：總圖前草皮").then(async function (name) {
+      if (!name) return;
+      var loc = { id: uid(), name: name, lat: e.latlng.lat, lng: e.latlng.lng, days: [], slots: [], note: "", createdAt: Date.now() };
+      try {
+        await store.saveLocation(loc);
+        state.locs[loc.id] = loc; state.ents[loc.id] = [];
+        state.sel = loc.id; state.mode = "edit"; state.editIsNew = true;
+        syncMarkers(); render();
+        toast("已新增地點");
+      } catch (err) { toast("新增失敗：" + errMsg(err), 4000); }
+    });
+  });
+
+  /* ================================================================== *
+   * MODALS
+   * ================================================================== */
+  var modal = $("modal");
+  function askText(title, desc, placeholder, initial) {
+    return new Promise(function (resolve) {
+      $("mTitle").textContent = title; $("mDesc").textContent = desc || "";
+      $("mFieldWrap").hidden = false;
+      var input = $("mInput"); input.placeholder = placeholder || ""; input.value = initial || "";
+      modal.hidden = false; setTimeout(function () { input.focus(); }, 30);
+      function done(v) { modal.hidden = true; $("mOk").onclick = $("mCancel").onclick = input.onkeydown = null; resolve(v); }
+      $("mOk").onclick = function () { var v = input.value.trim(); if (v) done(v); else input.focus(); };
+      $("mCancel").onclick = function () { done(null); };
+      input.onkeydown = function (e) { if (e.key === "Enter" && !e.isComposing) $("mOk").click(); if (e.key === "Escape") done(null); };
+    });
+  }
+  function askConfirm(title, desc, okLabel) {
+    return new Promise(function (resolve) {
+      $("mTitle").textContent = title; $("mDesc").textContent = desc || "";
+      $("mFieldWrap").hidden = true; $("mOk").textContent = okLabel || "確定";
+      modal.hidden = false;
+      function done(v) { modal.hidden = true; $("mOk").textContent = "確定"; $("mOk").onclick = $("mCancel").onclick = null; resolve(v); }
+      $("mOk").onclick = function () { done(true); };
+      $("mCancel").onclick = function () { done(false); };
+    });
+  }
+
+  /* ================================================================== *
+   * PANEL
+   * ================================================================== */
+  function openLocation(id) {
+    if (state.mode === "edit" && state.sel !== id) {
+      askConfirm("離開編輯？", "還沒儲存的內容會遺失。", "離開").then(function (ok) { if (ok) go(); });
+    } else go();
+    function go() { state.sel = id; state.mode = "view"; syncMarkers(); render(); }
+  }
+  function render() {
+    var head = $("panelHead"), body = $("panelBody");
+    body.innerHTML = ""; body.scrollTop = 0;
+    var loc = state.sel && state.locs[state.sel];
+    if (!loc) { state.sel = null; state.mode = "list"; }
+    if (state.mode === "list") { head.hidden = true; body.appendChild(buildList()); return; }
+    head.hidden = false;
+    $("locName").textContent = loc.name;
+    $("locCoord").textContent = loc.lat.toFixed(5) + ", " + loc.lng.toFixed(5);
+    $("btnEditHead").hidden = state.mode !== "view";
+    body.appendChild(state.mode === "edit" ? buildEdit(loc) : buildView(loc));
+  }
+
+  $("btnBack").addEventListener("click", function () {
+    if (state.mode === "edit") { state.mode = "view"; state.editIsNew = false; render(); return; }
+    state.sel = null; state.mode = "list"; syncMarkers(); render();
+  });
+  $("btnEditHead").addEventListener("click", function () { state.mode = "edit"; state.editIsNew = false; render(); });
+
+  function slotTags(loc) {
+    var h = "";
+    CONFIG.dayTypes.forEach(function (d) { if ((loc.days || []).indexOf(d[0]) > -1) h += '<span class="tag">' + esc(d[1]) + "</span>"; });
+    CONFIG.timeSlots.forEach(function (t) { if ((loc.slots || []).indexOf(t[0]) > -1) h += '<span class="tag">' + esc(t[1]) + "<small>" + esc(t[2]) + "</small></span>"; });
+    return h;
+  }
+  function slotText(loc) {
+    var p = [];
+    CONFIG.dayTypes.forEach(function (d) { if ((loc.days || []).indexOf(d[0]) > -1) p.push(d[1]); });
+    CONFIG.timeSlots.forEach(function (t) { if ((loc.slots || []).indexOf(t[0]) > -1) p.push(t[1]); });
+    return p.join("・");
+  }
+
+  /* ---- list (nothing selected) ---- */
+  function buildList() {
+    var wrap = document.createElement("div");
+    var ids = Object.keys(state.locs);
+    if (!ids.length) {
+      wrap.className = "empty";
+      wrap.innerHTML = '<div class="big">還沒有地點</div><p>在地圖上點一下新增第一個地點，取好名字後就能設定到訪時段、寫備註，並新增附照片或影片的紀錄。</p>';
+      return wrap;
+    }
+    var f = document.createElement("div"); f.className = "filters";
+    f.innerHTML = '<div class="section-label">依推薦指數篩選（可複選）</div><div class="chips"></div>';
+    CONFIG.recTiers.forEach(function (t) {
+      var c = document.createElement("button"); c.type = "button"; c.className = "chip";
+      c.innerHTML = esc(t[1]) + "<small>" + t[2] + "–" + t[3] + "</small>";
+      c.setAttribute("aria-pressed", state.filter.indexOf(t[0]) > -1 ? "true" : "false");
+      c.addEventListener("click", function () {
+        var i = state.filter.indexOf(t[0]);
+        if (i > -1) state.filter.splice(i, 1); else state.filter.push(t[0]);
+        lsSet("ntuj-filter", JSON.stringify(state.filter));
+        syncMarkers(); render();
+      });
+      f.querySelector(".chips").appendChild(c);
+    });
+    wrap.appendChild(f);
+
+    var shown = ids.filter(passesFilter).map(function (id) { return state.locs[id]; });
+    shown.sort(function (a, b) { return locStats(b.id).rec - locStats(a.id).rec || a.name.localeCompare(b.name, "zh-Hant"); });
+    var lbl = document.createElement("div"); lbl.className = "section-label";
+    lbl.innerHTML = (state.filter.length ? "符合的地點" : "所有地點") + ' <span class="count-pill">' + shown.length + "</span> 依平均推薦指數排序";
+    wrap.appendChild(lbl);
+    if (!shown.length) {
+      var none = document.createElement("p"); none.style.cssText = "color:var(--muted);font-size:13px;margin:4px 2px;";
+      none.textContent = "沒有符合的地點。點選上方類別可取消篩選。"; wrap.appendChild(none); return wrap;
+    }
+    var list = document.createElement("div"); list.className = "loclist";
+    var covers = [];
+    shown.forEach(function (loc) {
+      var st = locStats(loc.id), tier = tierOf(st.rec);
+      var row = document.createElement("button"); row.type = "button"; row.className = "locrow";
+      row.innerHTML = '<span class="thumbs"></span><span class="meta"><div class="nm"></div><div class="sl"></div></span>' +
+        '<span class="rec' + (st.rec ? "" : " none") + '">' + fmtAvg(st.rec) + (tier ? "<small>" + esc(tier[1]) + "</small>" : "") + "</span>";
+      row.querySelector(".nm").textContent = loc.name;
+      row.querySelector(".sl").textContent = [slotText(loc), st.n + " 筆紀錄", st.mood ? "心情 " + fmtAvg(st.mood) : ""].filter(Boolean).join(" · ");
+      row.addEventListener("click", function () {
+        map.flyTo([loc.lat, loc.lng], Math.max(map.getZoom(), 17), { duration: 0.6 });
+        openLocation(loc.id);
+      });
+      var cover = firstMedia(loc.id); if (cover) covers.push({ m: cover, el: row.querySelector(".thumbs") });
+      list.appendChild(row);
+    });
+    wrap.appendChild(list);
+    fillThumbs(covers);
+    return wrap;
+  }
+  function firstMedia(id) {
+    var es = entsOf(id);
+    for (var i = 0; i < es.length; i++) {
+      var im = (es[i].media || []).filter(function (m) { return m.type === "image"; })[0];
+      if (im) return im;
+    }
+    for (var j = 0; j < es.length; j++) if ((es[j].media || [])[0]) return es[j].media[0];
+    return null;
+  }
+  function mediaEl(m, url, thumb) {
+    if (m.type === "video") {
+      var v = document.createElement("video");
+      v.src = url + (thumb ? "#t=0.1" : ""); v.playsInline = true;
+      if (thumb) { v.muted = true; v.preload = "metadata"; } else { v.controls = true; }
+      return v;
+    }
+    var img = document.createElement("img"); img.src = url; img.alt = m.name || ""; if (thumb) img.loading = "lazy";
+    return img;
+  }
+  async function fillThumbs(items) {
+    if (!items.length) return;
+    try {
+      var urls = await store.mediaUrls(items.map(function (x) { return x.m; }));
+      items.forEach(function (x) { if (urls[x.m.id]) x.el.appendChild(mediaEl(x.m, urls[x.m.id], true)); });
+    } catch (e) { /* thumbnails are optional */ }
+  }
+
+  /* ---- view (IG-style profile) ---- */
+  function buildView(loc) {
+    var es = entsOf(loc.id), st = locStats(loc.id), tier = tierOf(st.rec);
+    var wrap = document.createElement("div");
+    wrap.innerHTML =
+      '<div class="stats">' +
+        '<div class="stat"><b>' + st.n + "</b><span>紀錄</span></div>" +
+        '<div class="stat"><b class="rec">' + fmtAvg(st.rec) + "<small> /" + CONFIG.recMax + "</small></b><span>平均推薦</span></div>" +
+        '<div class="stat"><b class="mood">' + fmtAvg(st.mood) + "<small> /" + CONFIG.moodMax + "</small></b><span>平均心情</span></div>" +
+      "</div>" +
+      '<div class="prof-meta">' +
+        (tier || slotTags(loc) ? '<div class="tags">' + (tier ? '<span class="tier">' + esc(tier[1]) + "</span>" : "") + slotTags(loc) + "</div>" : "") +
+        '<div class="note"></div>' +
+      "</div>" +
+      '<div class="prof-actions"><button class="btn primary wide" type="button" id="btnAdd">＋ 新增紀錄</button></div>' +
+      '<div class="grid" id="grid"></div>';
+    var note = wrap.querySelector(".note");
+    if (loc.note) note.textContent = loc.note; else { note.className = "note none"; note.textContent = "還沒有備註。"; }
+    wrap.querySelector("#btnAdd").addEventListener("click", function () { state.mode = "edit"; state.editIsNew = false; render(); setTimeout(focusEntry, 50); });
+
+    var grid = wrap.querySelector("#grid");
+    if (!es.length) {
+      grid.outerHTML = '<div class="empty" style="min-height:0;padding:28px 12px"><div class="big">還沒有紀錄</div><p>按「新增紀錄」上傳第一張照片或影片。</p></div>';
+      return wrap;
+    }
+    var pending = [];
+    es.forEach(function (ent, idx) {
+      var tile = document.createElement("button"); tile.type = "button"; tile.className = "tile";
+      tile.setAttribute("aria-label", fmtWhen(ent.datetime) + " 的紀錄");
+      var media = ent.media || [];
+      if (media.length) {
+        var cover = media.filter(function (m) { return m.type === "image"; })[0] || media[0];
+        pending.push({ m: cover, el: tile, prepend: true });
+        if (media.length > 1) tile.insertAdjacentHTML("beforeend", '<span class="badge">' + media.length + "</span>");
+        else if (cover.type === "video") tile.insertAdjacentHTML("beforeend", '<span class="badge">▶</span>');
+      } else {
+        tile.classList.add("textonly");
+        var t = document.createElement("div"); t.className = "txt" + (ent.text ? "" : " muted");
+        t.textContent = ent.text || ("推薦 " + (ent.rec || "–") + "・心情 " + (ent.mood || "–"));
+        tile.appendChild(t);
+      }
+      tile.insertAdjacentHTML("beforeend", '<span class="when">' + esc(fmtWhen(ent.datetime, true)) + "</span>");
+      tile.addEventListener("click", function () { openPost(loc.id, idx); });
+      grid.appendChild(tile);
+    });
+    (async function () {
+      try {
+        var urls = await store.mediaUrls(pending.map(function (x) { return x.m; }));
+        pending.forEach(function (x) { if (urls[x.m.id]) x.el.insertBefore(mediaEl(x.m, urls[x.m.id], true), x.el.firstChild); });
+      } catch (e) { toast("照片載入失敗：" + errMsg(e), 4000); }
+    })();
+    return wrap;
+  }
+
+  /* ---- edit (location info + new entry) ---- */
+  var editForm = null;
+  function focusEntry() { var el = document.getElementById("eEntry"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  function buildEdit(loc) {
+    var draft = { days: (loc.days || []).slice(), slots: (loc.slots || []).slice(), mood: 0, rec: 0, files: [] };
+    var wrap = document.createElement("div");
+    wrap.innerHTML =
+      '<div class="form">' +
+        '<div class="section-label">地點資訊</div>' +
+        '<div class="field"><label class="lbl" for="eName">名稱</label><input type="text" id="eName"></div>' +
+        '<div class="field"><span class="lbl">適合到訪時段（可複選）</span><div class="chips" id="eDays"></div></div>' +
+        '<div class="field"><div class="chips" id="eSlots"></div></div>' +
+        '<div class="field"><label class="lbl" for="eNote">備註</label><textarea id="eNote" placeholder="交通方式、營業時間、注意事項…"></textarea></div>' +
+      "</div>" +
+      '<div class="form" id="eEntry">' +
+        '<div class="section-label">新增一筆紀錄（不填就只更新地點資訊）</div>' +
+        '<div class="field"><span class="lbl">照片／影片</span>' +
+          '<label class="filepick"><input type="file" id="eFiles" accept="image/*,video/*" multiple>' +
+          '<span>＋ 選擇檔案</span><span id="eFname" style="margin-left:auto;"></span></label>' +
+          '<div class="previews" id="ePrev"></div></div>' +
+        '<div class="field"><label class="lbl" for="eDt">日期時間</label><input type="datetime-local" id="eDt"></div>' +
+        '<div class="field"><label class="lbl" for="eText">文字紀錄</label><textarea id="eText" placeholder="想記下的任何事…"></textarea></div>' +
+        '<div class="field"><span class="lbl">推薦指數</span><div class="rec-row"><div class="rec-pick" id="eRec"></div><span class="rec-val" id="eRecVal"></span></div></div>' +
+        '<div class="field"><span class="lbl">心情評分</span><div class="mood-pick" id="eMood"></div></div>' +
+      "</div>" +
+      '<div class="edit-actions"><button class="btn" type="button" id="eCancel">取消</button>' +
+        '<button class="btn primary wide" type="button" id="eSave">儲存</button></div>' +
+      '<div class="danger-zone"><span>刪除地點會一併刪除所有紀錄、照片與影片。</span><button class="btn danger" type="button" id="eDel">刪除地點</button></div>';
+
+    var q = function (s) { return wrap.querySelector(s); };
+    q("#eName").value = loc.name; q("#eNote").value = loc.note || "";
+    q("#eDt").value = localStamp(new Date());
+
+    function chipGroup(box, items, key) {
+      items.forEach(function (it) {
+        var c = document.createElement("button"); c.type = "button"; c.className = "chip";
+        c.innerHTML = esc(it[1]) + (it[2] ? "<small>" + esc(it[2]) + "</small>" : "");
+        c.setAttribute("aria-pressed", draft[key].indexOf(it[0]) > -1 ? "true" : "false");
+        c.addEventListener("click", function () {
+          var i = draft[key].indexOf(it[0]);
+          if (i > -1) draft[key].splice(i, 1); else draft[key].push(it[0]);
+          c.setAttribute("aria-pressed", i > -1 ? "false" : "true");
+        });
+        box.appendChild(c);
+      });
+    }
+    chipGroup(q("#eDays"), CONFIG.dayTypes, "days");
+    chipGroup(q("#eSlots"), CONFIG.timeSlots, "slots");
+
+    var recBox = q("#eRec");
+    function paintRec() {
+      recBox.querySelectorAll("button").forEach(function (b) { b.classList.toggle("on", +b.dataset.v <= draft.rec); });
+      var t = tierOf(draft.rec);
+      q("#eRecVal").innerHTML = draft.rec ? "<b>" + draft.rec + "</b> " + esc(t ? t[1] : "") : "未評分";
+    }
+    for (var v = 1; v <= CONFIG.recMax; v++) {
+      var b = document.createElement("button"); b.type = "button"; b.textContent = v; b.dataset.v = v;
+      b.title = "推薦 " + v + "（再點一次可清除）";
+      b.addEventListener("click", function (ev) { var val = +ev.currentTarget.dataset.v; draft.rec = draft.rec === val ? 0 : val; paintRec(); });
+      recBox.appendChild(b);
+    }
+    paintRec();
+
+    var moodBox = q("#eMood");
+    for (var m = 1; m <= CONFIG.moodMax; m++) {
+      var mb = document.createElement("button"); mb.type = "button"; mb.textContent = m; mb.dataset.m = m;
+      mb.addEventListener("click", function (ev) {
+        var val = +ev.currentTarget.dataset.m; draft.mood = draft.mood === val ? 0 : val;
+        moodBox.querySelectorAll("button").forEach(function (x) { x.setAttribute("aria-pressed", +x.dataset.m <= draft.mood ? "true" : "false"); });
+      });
+      moodBox.appendChild(mb);
+    }
+
+    var prevUrls = [];
+    q("#eFiles").addEventListener("change", function (ev) {
+      prevUrls.forEach(function (u) { URL.revokeObjectURL(u); }); prevUrls = [];
+      draft.files = Array.prototype.slice.call(ev.target.files);
+      q("#eFname").textContent = draft.files.length ? draft.files.length + " 個檔案" : "";
+      var pv = q("#ePrev"); pv.innerHTML = "";
+      draft.files.slice(0, 10).forEach(function (f) {
+        var u = URL.createObjectURL(f); prevUrls.push(u);
+        var cell = document.createElement("div");
+        cell.appendChild(mediaEl({ type: mediaType(f.type), name: f.name }, u, true)); pv.appendChild(cell);
+      });
+      // use the photo's own date if the user hasn't changed the field
+      var f0 = draft.files[0];
+      if (f0 && f0.lastModified && !q("#eDt").dataset.touched) q("#eDt").value = localStamp(new Date(f0.lastModified));
+    });
+    q("#eDt").addEventListener("input", function () { q("#eDt").dataset.touched = "1"; });
+
+    q("#eCancel").addEventListener("click", function () { state.mode = "view"; state.editIsNew = false; render(); });
+
+    q("#eSave").addEventListener("click", async function () {
+      var btn = q("#eSave");
+      var name = q("#eName").value.trim();
+      if (!name) { toast("地點名稱不能空白"); q("#eName").focus(); return; }
+      var text = q("#eText").value.trim();
+      var hasEntry = !!(text || draft.files.length || draft.mood || draft.rec);
+      btn.disabled = true; btn.textContent = "儲存中…";
+      var entry = null;
+      try {
+        var newLoc = Object.assign({}, loc, { name: name, note: q("#eNote").value.trim(), days: draft.days, slots: draft.slots });
+        await store.saveLocation(newLoc);
+        state.locs[loc.id] = newLoc;
+        if (hasEntry) {
+          entry = { id: uid(), locationId: loc.id, datetime: q("#eDt").value, text: text,
+            mood: draft.mood, rec: draft.rec, media: [], createdAt: Date.now() };
+          await store.saveEntry(entry, draft.files, function (i, n) { btn.textContent = "上傳中 " + (i + 1) + " / " + n + "…"; });
+          (state.ents[loc.id] = state.ents[loc.id] || []).push(entry); sortEnts(state.ents[loc.id]);
+        }
+        prevUrls.forEach(function (u) { URL.revokeObjectURL(u); });
+        state.mode = "view"; state.editIsNew = false;
+        syncMarkers(); render();
+        toast(hasEntry ? "已儲存紀錄" : "已更新地點資訊");
+      } catch (err) {
+        btn.disabled = false; btn.textContent = "儲存";
+        if (entry && entry.media.length) {
+          // part of the files made it; the entry exists now, so show it instead of letting a retry duplicate it
+          toast("部分檔案上傳失敗：" + errMsg(err) + "。已存好的部分在紀錄裡，可以再新增一筆補上其他檔案。", 8000);
+          state.mode = "view"; await reload(); render();
+        } else {
+          toast("儲存失敗：" + errMsg(err), 6000);
+        }
+      }
+    });
+
+    q("#eDel").addEventListener("click", function () {
+      askConfirm("刪除「" + loc.name + "」？", "這個地點底下的所有紀錄、照片與影片都會一併刪除，無法復原。", "刪除").then(async function (ok) {
+        if (!ok) return;
+        try {
+          await store.deleteLocation(loc, entsOf(loc.id));
+          delete state.locs[loc.id]; delete state.ents[loc.id];
+          state.sel = null; state.mode = "list"; syncMarkers(); render(); toast("已刪除地點");
+        } catch (err) { toast("刪除失敗：" + errMsg(err), 4000); }
+      });
+    });
+
+    if (state.editIsNew) setTimeout(function () { var el = document.getElementById("eName"); if (el) el.select(); }, 40);
+    return wrap;
+  }
+
+  /* ================================================================== *
+   * POST VIEWER
+   * ================================================================== */
+  var post = { locId: null, idx: 0, mi: 0, urls: {} };
+  async function openPost(locId, idx) {
+    post.locId = locId; post.idx = idx; post.mi = 0;
+    var ent = entsOf(locId)[idx]; if (!ent) return;
+    $("pWhen").textContent = fmtWhen(ent.datetime);
+    var t = tierOf(ent.rec), dots = "";
+    for (var i = 1; i <= CONFIG.moodMax; i++) dots += '<span class="dot' + (ent.mood >= i ? " on" : "") + '"></span>';
+    $("pScores").innerHTML =
+      "<span>推薦 <b>" + (ent.rec || "–") + "</b>" + (t ? "・" + esc(t[1]) : "") + "</span>" +
+      '<span>心情 <span class="dots">' + dots + "</span></span>";
+    $("pText").textContent = ent.text || "";
+    var hasMedia = (ent.media || []).length > 0;
+    $("pMedia").hidden = !hasMedia;
+    $("pBody").classList.toggle("solo", !hasMedia);
+    $("pMedia").innerHTML = "";
+    $("post").hidden = false;
+    if (hasMedia) {
+      try { post.urls = await store.mediaUrls(ent.media); } catch (e) { post.urls = {}; toast("照片載入失敗：" + errMsg(e), 4000); }
+      paintPostMedia();
+    }
+  }
+  function paintPostMedia() {
+    var ent = entsOf(post.locId)[post.idx]; if (!ent) return;
+    var list = ent.media || [], box = $("pMedia"); box.innerHTML = "";
+    var m = list[post.mi], url = m && post.urls[m.id];
+    if (url) box.appendChild(mediaEl(m, url, false));
+    if (list.length > 1) {
+      box.insertAdjacentHTML("beforeend", '<button class="nav prev" aria-label="上一張">‹</button><button class="nav next" aria-label="下一張">›</button>' +
+        '<span class="counter">' + (post.mi + 1) + " / " + list.length + "</span>");
+      box.querySelector(".prev").onclick = function () { stepMedia(-1); };
+      box.querySelector(".next").onclick = function () { stepMedia(1); };
+    }
+  }
+  function stepMedia(d) {
+    var n = (entsOf(post.locId)[post.idx].media || []).length;
+    post.mi = (post.mi + d + n) % n; paintPostMedia();
+  }
+  function closePost() { $("pMedia").innerHTML = ""; $("post").hidden = true; }
+  $("pClose").addEventListener("click", closePost);
+  $("post").addEventListener("click", function (e) { if (e.target === $("post")) closePost(); });
+  document.addEventListener("keydown", function (e) {
+    if ($("post").hidden) return;
+    if (e.key === "Escape") closePost();
+    if (e.key === "ArrowLeft") stepMedia(-1);
+    if (e.key === "ArrowRight") stepMedia(1);
+  });
+  (function () { // swipe on phones
+    var x0 = null;
+    $("pMedia").addEventListener("touchstart", function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+    $("pMedia").addEventListener("touchend", function (e) {
+      if (x0 == null) return; var dx = e.changedTouches[0].clientX - x0; x0 = null;
+      if (Math.abs(dx) > 50) stepMedia(dx < 0 ? 1 : -1);
+    });
+  })();
+  $("pDelete").addEventListener("click", function () {
+    var ent = entsOf(post.locId)[post.idx]; if (!ent) return;
+    askConfirm("刪除這筆紀錄？", "文字與所有照片／影片會一併刪除，無法復原。", "刪除").then(async function (ok) {
+      if (!ok) return;
+      try {
+        await store.deleteEntry(ent);
+        state.ents[post.locId] = entsOf(post.locId).filter(function (e) { return e.id !== ent.id; });
+        closePost(); syncMarkers(); render(); toast("已刪除");
+      } catch (err) { toast("刪除失敗：" + errMsg(err), 4000); }
+    });
+  });
+
+  /* ================================================================== *
+   * EXPORT / IMPORT  (version 2; also reads version-1 backups)
+   * ================================================================== */
+  function blobToDataURL(blob) {
+    return new Promise(function (res, rej) { var r = new FileReader(); r.onload = function () { res(r.result); }; r.onerror = rej; r.readAsDataURL(blob); });
+  }
+  function dataURLToBlob(u) {
+    var parts = u.split(","), mime = (parts[0].match(/:(.*?);/) || [])[1] || "";
+    var bin = atob(parts[1]), arr = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  }
+
+  $("btnExport").addEventListener("click", async function () {
+    if (!store) return;
+    toast("正在打包…（照片多時要等一下）", 6000);
+    try {
+      var locations = Object.keys(state.locs).map(function (k) { return state.locs[k]; });
+      var entries = [];
+      for (var k in state.ents) {
+        for (var i = 0; i < state.ents[k].length; i++) {
+          var e = state.ents[k][i], mediaOut = [];
+          for (var j = 0; j < (e.media || []).length; j++) {
+            var m = e.media[j], blob = await store.mediaBlob(m);
+            if (blob) mediaOut.push({ type: m.type, mime: m.mime, name: m.name, data: await blobToDataURL(blob) });
+          }
+          entries.push(Object.assign({}, e, { media: mediaOut }));
+        }
+      }
+      var backup = { app: "ntu_field_journal", version: 2, exportedAt: Date.now(), locations: locations, entries: entries };
+      var url = URL.createObjectURL(new Blob([JSON.stringify(backup)], { type: "application/json" }));
+      var a = document.createElement("a");
+      a.href = url; a.download = "台大地點日誌-備份-" + localStamp(new Date()).slice(0, 10) + ".json";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+      toast("已匯出備份檔");
+    } catch (err) { toast("匯出失敗：" + errMsg(err), 5000); }
+  });
+
+  $("btnImport").addEventListener("click", function () { if (store) $("importFile").click(); });
+  $("importFile").addEventListener("change", function (e) {
+    var file = e.target.files[0]; if (!file) return;
+    e.target.value = "";
+    var reader = new FileReader();
+    reader.onload = function () {
+      var data;
+      try { data = JSON.parse(reader.result); } catch (err) { toast("檔案格式不正確"); return; }
+      if (!data || data.app !== "ntu_field_journal") { toast("這不是本工具的備份檔"); return; }
+      askConfirm("匯入備份？",
+        "地點會加入目前資料（同一個地點會以備份內容更新）；已經存在的紀錄會略過，不會重複。" + (store.kind === "cloud" ? "照片與影片會上傳到雲端。" : ""),
+        "匯入").then(function (ok) { if (ok) runImport(data); });
+    };
+    reader.readAsText(file);
+  });
+
+  async function runImport(data) {
+    var locs = (data.locations || []).map(function (l) { return Object.assign({}, l); });
+    var ents = (data.entries || []).map(function (en) { return Object.assign({}, en); });
+    var blobs = {};
+    if ((data.version || 1) < 2) {
+      (data.media || []).forEach(function (m) { (blobs[m.entryId] = blobs[m.entryId] || []).push(m); });
+    } else {
+      ents.forEach(function (en) { blobs[en.id] = (en.media || []).filter(function (m) { return m.data; }); });
+    }
+    ents.forEach(function (en) { en.media = []; });
+    upgradeLegacy(locs, ents);
+    var existing = {};
+    Object.keys(state.ents).forEach(function (k) { state.ents[k].forEach(function (en) { existing[en.id] = true; }); });
+    try {
+      for (var i = 0; i < locs.length; i++) await store.saveLocation(locs[i]);
+      var todo = ents.filter(function (en) { return !existing[en.id]; });
+      for (var j = 0; j < todo.length; j++) {
+        toast("匯入中 " + (j + 1) + " / " + todo.length + "…", 60000);
+        var files = (blobs[todo[j].id] || []).map(function (m) {
+          return new File([dataURLToBlob(m.data)], m.name || "media", { type: m.mime || "" });
+        });
+        await store.saveEntry(todo[j], files);
+      }
+      toast("匯入完成：" + locs.length + " 個地點、" + todo.length + " 筆紀錄");
+      await reload();
+    } catch (err) { toast("匯入中斷：" + errMsg(err) + "（可再匯入一次，已完成的會略過）", 6000); await reload(); }
+  }
+
+  /* ================================================================== *
+   * BOOT / SYNC
+   * ================================================================== */
+  function setSync(text, cloud) {
+    var s = $("syncState"); s.className = "sub" + (cloud ? " cloud" : "");
+    s.innerHTML = '<span class="dotst"></span>' + esc(text);
+  }
+
+  var loading = false;
+  async function reload() {
+    if (!store || loading) return;
+    loading = true;
+    try {
+      var res = await Promise.all([store.listLocations(), store.listEntries()]);
+      var locs = res[0], ents = res[1];
+      var changed = upgradeLegacy(locs, ents);
+      for (var i = 0; i < locs.length; i++) if (changed.locs[locs[i].id]) await store.saveLocation(locs[i]);
+      for (var j = 0; j < ents.length; j++) if (changed.ents[ents[j].id]) await store.saveEntry(ents[j], []);
+      state.locs = {}; state.ents = {};
+      locs.forEach(function (l) { state.locs[l.id] = l; state.ents[l.id] = []; });
+      ents.forEach(function (e) { if (state.ents[e.locationId]) state.ents[e.locationId].push(e); });
+      Object.keys(state.ents).forEach(function (k) { sortEnts(state.ents[k]); });
+      if (state.sel && !state.locs[state.sel]) { state.sel = null; state.mode = "list"; }
+      syncMarkers();
+      if (state.mode !== "edit" && $("post").hidden) render();
+      setTimeout(function () { map.invalidateSize(); }, 150);
+    } catch (err) {
+      toast("讀取資料失敗：" + errMsg(err), 6000);
+    } finally { loading = false; }
+  }
+
+  async function start() {
+    var cloudWanted = CONFIG.supabaseUrl && CONFIG.supabaseAnonKey && CONFIG.mediaWorkerUrl;
+    if (!cloudWanted && (CONFIG.supabaseUrl || CONFIG.mediaWorkerUrl)) toast("雲端設定還沒填完整（需要三個值），暫時使用本機模式", 6000);
+    if (cloudWanted && window.supabase) {
+      sb = sb || window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey);
+      var sess = (await sb.auth.getSession()).data.session;
+      if (!sess) { setSync("請先登入", false); render(); $("login").hidden = false; setTimeout(function () { $("lgEmail").focus(); }, 50); return; }
+      store = cloudStore(sb, sess.user.id);
+      setSync("雲端同步・" + sess.user.email, true);
+      $("btnLogout").hidden = false;
+    } else {
+      if (cloudWanted) toast("連不上雲端服務，暫時改用本機模式", 5000);
+      try { store = await localStore(); } catch (err) { toast("無法開啟本機資料庫：" + errMsg(err), 6000); return; }
+      setSync("本機模式・只存在這個瀏覽器", false);
+    }
+    await reload();
+    if (state.mode === "list") render();
+  }
+
+  $("loginForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var btn = $("lgBtn"), err = $("lgErr");
+    btn.disabled = true; err.hidden = true;
+    var r = await sb.auth.signInWithPassword({ email: $("lgEmail").value.trim(), password: $("lgPass").value });
+    btn.disabled = false;
+    if (r.error) { err.textContent = "登入失敗：" + (r.error.message === "Invalid login credentials" ? "帳號或密碼不正確" : r.error.message); err.hidden = false; return; }
+    $("login").hidden = true; $("lgPass").value = "";
+    start();
+  });
+  $("btnLogout").addEventListener("click", function () {
+    askConfirm("登出？", "登出後要重新輸入帳號密碼才能看到資料。", "登出").then(async function (ok) {
+      if (!ok) return;
+      await sb.auth.signOut();
+      store = null; state.locs = {}; state.ents = {}; state.sel = null; state.mode = "list";
+      syncMarkers(); render(); $("btnLogout").hidden = true;
+      start();
+    });
+  });
+
+  // Pull the newest data whenever you come back to this tab/app (e.g. after adding something on your phone)
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && store && store.kind === "cloud") reload();
+  });
+  window.addEventListener("resize", function () { map.invalidateSize(); });
+
+  start();
+})();
+</script>
+</body>
+</html>
