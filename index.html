@@ -384,10 +384,10 @@
     moodMax: 5,
     // 清單篩選：[代號, 名稱, 最低, 最高]（以平均推薦指數四捨五入判斷）
     recTiers: [
-      ["low",  "不推薦",   1, 3],
-      ["mid",  "有點普通", 4, 6],
-      ["good", "推薦到訪", 7, 8],
-      ["must", "必看必去", 9, 10]
+      ["low",  "新手安全",   1, 3],
+      ["mid",  "有點小膽", 4, 6],
+      ["good", "刺激大膽", 7, 8],
+      ["must", "極限暴露", 9, 10]
     ],
 
     // ── 底圖 ──────────────────────────────────────────────────────
@@ -839,7 +839,7 @@
       return wrap;
     }
     var f = document.createElement("div"); f.className = "filters";
-    f.innerHTML = '<div class="section-label">依推薦指數篩選（可複選）</div><div class="chips"></div>';
+    f.innerHTML = '<div class="section-label">依刺激指數篩選（可複選）</div><div class="chips"></div>';
     CONFIG.recTiers.forEach(function (t) {
       var c = document.createElement("button"); c.type = "button"; c.className = "chip";
       c.innerHTML = esc(t[1]) + "<small>" + t[2] + "–" + t[3] + "</small>";
@@ -857,7 +857,7 @@
     var shown = ids.filter(passesFilter).map(function (id) { return state.locs[id]; });
     shown.sort(function (a, b) { return locStats(b.id).rec - locStats(a.id).rec || a.name.localeCompare(b.name, "zh-Hant"); });
     var lbl = document.createElement("div"); lbl.className = "section-label";
-    lbl.innerHTML = (state.filter.length ? "符合的地點" : "所有地點") + ' <span class="count-pill">' + shown.length + "</span> 依平均推薦指數排序";
+    lbl.innerHTML = (state.filter.length ? "符合的地點" : "所有地點") + ' <span class="count-pill">' + shown.length + "</span> 依平均刺激指數排序";
     wrap.appendChild(lbl);
     if (!shown.length) {
       var none = document.createElement("p"); none.style.cssText = "color:var(--muted);font-size:13px;margin:4px 2px;";
@@ -871,7 +871,7 @@
       row.innerHTML = '<span class="thumbs"></span><span class="meta"><div class="nm"></div><div class="sl"></div></span>' +
         '<span class="rec' + (st.rec ? "" : " none") + '">' + fmtAvg(st.rec) + (tier ? "<small>" + esc(tier[1]) + "</small>" : "") + "</span>";
       row.querySelector(".nm").textContent = loc.name;
-      row.querySelector(".sl").textContent = [slotText(loc), st.n + " 筆紀錄", st.mood ? "心情 " + fmtAvg(st.mood) : ""].filter(Boolean).join(" · ");
+      row.querySelector(".sl").textContent = [slotText(loc), st.n + " 筆紀錄", st.mood ? "綜合評分 " + fmtAvg(st.mood) : ""].filter(Boolean).join(" · ");
       row.addEventListener("click", function () {
         map.flyTo([loc.lat, loc.lng], Math.max(map.getZoom(), 17), { duration: 0.6 });
         openLocation(loc.id);
@@ -917,8 +917,8 @@
     wrap.innerHTML =
       '<div class="stats">' +
         '<div class="stat"><b>' + st.n + "</b><span>紀錄</span></div>" +
-        '<div class="stat"><b class="rec">' + fmtAvg(st.rec) + "<small> /" + CONFIG.recMax + "</small></b><span>平均推薦</span></div>" +
-        '<div class="stat"><b class="mood">' + fmtAvg(st.mood) + "<small> /" + CONFIG.moodMax + "</small></b><span>平均心情</span></div>" +
+        '<div class="stat"><b class="rec">' + fmtAvg(st.rec) + "<small> /" + CONFIG.recMax + "</small></b><span>平均刺激度</span></div>" +
+        '<div class="stat"><b class="mood">' + fmtAvg(st.mood) + "<small> /" + CONFIG.moodMax + "</small></b><span>平均綜合評分</span></div>" +
       "</div>" +
       '<div class="prof-meta">' +
         (tier || slotTags(loc) ? '<div class="tags">' + (tier ? '<span class="tier">' + esc(tier[1]) + "</span>" : "") + slotTags(loc) + "</div>" : "") +
@@ -948,7 +948,7 @@
       } else {
         tile.classList.add("textonly");
         var t = document.createElement("div"); t.className = "txt" + (ent.text ? "" : " muted");
-        t.textContent = ent.text || ("推薦 " + (ent.rec || "–") + "・心情 " + (ent.mood || "–"));
+        t.textContent = ent.text || ("刺激度 " + (ent.rec || "–") + "・綜合評分 " + (ent.mood || "–"));
         tile.appendChild(t);
       }
       tile.insertAdjacentHTML("beforeend", '<span class="when">' + esc(fmtWhen(ent.datetime, true)) + "</span>");
@@ -986,8 +986,8 @@
           '<div class="previews" id="ePrev"></div></div>' +
         '<div class="field"><label class="lbl" for="eDt">日期時間</label><input type="datetime-local" id="eDt"></div>' +
         '<div class="field"><label class="lbl" for="eText">文字紀錄</label><textarea id="eText" placeholder="想記下的任何事…"></textarea></div>' +
-        '<div class="field"><span class="lbl">推薦指數</span><div class="rec-row"><div class="rec-pick" id="eRec"></div><span class="rec-val" id="eRecVal"></span></div></div>' +
-        '<div class="field"><span class="lbl">心情評分</span><div class="mood-pick" id="eMood"></div></div>' +
+        '<div class="field"><span class="lbl">刺激指數</span><div class="rec-row"><div class="rec-pick" id="eRec"></div><span class="rec-val" id="eRecVal"></span></div></div>' +
+        '<div class="field"><span class="lbl">綜合評分</span><div class="mood-pick" id="eMood"></div></div>' +
       "</div>" +
       '<div class="edit-actions"><button class="btn" type="button" id="eCancel">取消</button>' +
         '<button class="btn primary wide" type="button" id="eSave">儲存</button></div>' +
@@ -1021,7 +1021,7 @@
     }
     for (var v = 1; v <= CONFIG.recMax; v++) {
       var b = document.createElement("button"); b.type = "button"; b.textContent = v; b.dataset.v = v;
-      b.title = "推薦 " + v + "（再點一次可清除）";
+      b.title = "刺激度 " + v + "（再點一次可清除）";
       b.addEventListener("click", function (ev) { var val = +ev.currentTarget.dataset.v; draft.rec = draft.rec === val ? 0 : val; paintRec(); });
       recBox.appendChild(b);
     }
@@ -1116,8 +1116,8 @@
     var t = tierOf(ent.rec), dots = "";
     for (var i = 1; i <= CONFIG.moodMax; i++) dots += '<span class="dot' + (ent.mood >= i ? " on" : "") + '"></span>';
     $("pScores").innerHTML =
-      "<span>推薦 <b>" + (ent.rec || "–") + "</b>" + (t ? "・" + esc(t[1]) : "") + "</span>" +
-      '<span>心情 <span class="dots">' + dots + "</span></span>";
+      "<span>刺激度 <b>" + (ent.rec || "–") + "</b>" + (t ? "・" + esc(t[1]) : "") + "</span>" +
+      '<span>綜合評分 <span class="dots">' + dots + "</span></span>";
     $("pText").textContent = ent.text || "";
     var hasMedia = (ent.media || []).length > 0;
     $("pMedia").hidden = !hasMedia;
